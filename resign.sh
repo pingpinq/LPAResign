@@ -1,66 +1,6 @@
 #!/bin/bash
 # shellcheck disable=SC2155
 
-# Copyright (c) 2011 Float Mobile Learning
-# http://www.floatlearning.com/
-# Extension Copyright (c) 2013 Weptun Gmbh
-# http://www.weptun.de
-#
-# Extended by Ronan O Ciosoig January 2012
-#
-# Extended by Patrick Blitz, April 2013
-#
-# Extended by John Turnipseed and Matthew Nespor, November 2014
-# http://nanonation.net/
-#
-# Extended by Nicolas Bachschmidt, October 2015
-#
-# Permission is hereby granted, free of charge, to any person obtaining
-# a copy of this software and associated documentation files (the "Software"),
-# to deal in the Software without restriction, including without limitation
-# the rights to use, copy, modify, merge, publish, distribute, sublicense,
-# and/or sell copies of the Software, and to permit persons to whom the
-# Software is furnished to do so, subject to the following conditions:
-#
-# The above copyright notice and this permission notice shall be included
-# in all copies or substantial portions of the Software.
-#
-# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
-# OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-# MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
-# IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
-# CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
-# TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
-# SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-#
-# Please let us know about any improvements you make to this script!
-# ./floatsign source "iPhone Distribution: Name" -p "path/to/profile" [-d "display name"]  [-e entitlements] [-k keychain] [-b "BundleIdentifier"] outputIpa
-#
-#
-# Modifed 26th January 2012
-#
-# new features January 2012:
-# 1. change the app display name
-#
-# new features April 2013
-# 1. specify the target bundleId on the command line
-# 2. correctly handles entitlements for keychain-enabled resigning
-#
-# new features November 2014
-# 1. now re-signs embedded iOS frameworks, if present, prior to re-signing the application itself
-# 2. extracts the team-identifier from provisioning profile and uses it to update previous entitlements
-# 3. fixed bug in packaging if -e flag is used
-# 4. renamed 'temp' directory and made it a variable so it can be easily modified
-# 5. various code formatting and logging adjustments
-#
-# new features October 2015
-# 1. now re-signs nested applications and app extensions, if present, prior to re-signing the application itself
-# 2. enables the -p option to be used more than once
-# 3. ensures the provisioning profile's bundle-identifier matches the app's bundle identifier
-# 4. extracts the entitlements from the provisioning profile
-# 5. copy the entitlements as archived-expanded-entitlements.xcent inside the app bundle (because Xcode does too)
-#
-
 # Logging functions
 
 log() {
@@ -140,7 +80,7 @@ if [ $# -lt 3 ]; then
 fi
 
 ORIGINAL_FILE="$1"
-CERTIFICATE="$2"
+CERTIFICATE=""
 ENTITLEMENTS=
 BUNDLE_IDENTIFIER=""
 DISPLAY_NAME=""
@@ -154,16 +94,22 @@ PROVISIONS_BY_ID=()
 DEFAULT_PROVISION=""
 TEMP_DIR="_floatsignTemp"
 USE_APP_ENTITLEMENTS=""
+P12=""
+PASS=""
 
 # List of plist keys used for reference to and from nested apps and extensions
 NESTED_APP_REFERENCE_KEYS=(":WKCompanionAppBundleIdentifier" ":NSExtension:NSExtensionAttributes:WKAppBundleIdentifier")
 
 # options start index
-shift 2
+shift 1
 
 # Parse args
 while [ "$1" != "" ]; do
     case $1 in
+        -p12 )
+            shift
+            P12="$1"
+            ;;
         -p | --provisioning )
             shift
             RAW_PROVISIONS+=("$1")
@@ -188,6 +134,10 @@ while [ "$1" != "" ]; do
             shift
             VERSION_NUMBER="$1"
             ;;
+        -pass )
+			shift
+			PASS="$1"
+			;;
         --short-version )
             shift
             SHORT_VERSION="$1"
@@ -394,7 +344,21 @@ function resign {
     local NEW_PROVISION="$NEW_PROVISION"
     local APP_IDENTIFIER_PREFIX=""
     local TEAM_IDENTIFIER=""
+    local NEW_CERTIFICATE_NAME_SHA1=""
 
+    # Import P12 to keychain && Get the Certificate from P12 file
+    if [[ "${PASS}" = "" ]]; then
+    	security import "${P12}" -P 123456
+    	NEW_CERTIFICATE_NAME_SHA1=$(openssl pkcs12 -in "${P12}" -nodes -passin pass:123456 | openssl x509 -noout -fingerprint | sed 's/://g;s/SHA1 Fingerprint=//')
+    else
+    	security import "${P12}" -P "${PASS}"
+    	NEW_CERTIFICATE_NAME_SHA1=$(openssl pkcs12 -in "${P12}" -nodes -passin pass:"${PASS}" | openssl x509 -noout -fingerprint | sed 's/://g;s/SHA1 Fingerprint=//')
+    fi
+    if [[ "${CERTIFICATE}" = "" ]]; then
+    	CERTIFICATE=$NEW_CERTIFICATE_NAME_SHA1
+    fi
+    log "Import p12 to keychain && NEW_CERTIFICATE_NAME_SHA1 is '$NEW_CERTIFICATE_NAME_SHA1'"
+    
     if [[ "$NESTED" == NESTED ]]; then
         # Ignore bundle identifier for nested applications
         BUNDLE_IDENTIFIER=""
