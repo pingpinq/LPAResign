@@ -617,6 +617,10 @@ function resign {
         # New team ID is part of profile entitlements
         NEW_TEAM_ID=$(PlistBuddy -c "Print com.apple.developer.team-identifier" "$PROFILE_ENTITLEMENTS" | grep -E '^[A-Z0-9]*' -o | tr -d '\n')
 
+        # xattr -cr resource fork, Finder information (Fix) resource fork, Finder information, or similar detritus not allowed
+        # xattr -cr "$TEMP_DIR/Payload/$APP_NAME"
+        # log "xattr -cr success"
+
         # List of rules for transferring entitlements from app to profile plist
         # The format for each enty is "KEY[|ID_TYPE]"
         # Where KEY is the plist key, e.g. "keychain-access-groups"
